@@ -295,7 +295,7 @@ float Map2D::distToCost(float d, float& g) const {
 
   if (d < 0) {
 
-    g = 1;
+    g = -1;
     return -d + 0.5*eps;
 
   } else if (d <= eps) {
@@ -387,8 +387,9 @@ void Map2D::rasterize(RasterType type,
       vec3f c = grad.lookup(v);
 
       for (int i=0; i<3; ++i) {
-        *pxptr++ = std::max(0.0f, std::min(c[i], 1.0f))*255;
+        *pxptr++ = std::max(0.0f, std::min(c[2-i], 1.0f))*255;
       }
+
       *pxptr++ = 0xff;
 
     }

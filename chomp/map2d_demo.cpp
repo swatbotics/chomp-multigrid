@@ -33,6 +33,7 @@
 
 #include "Map2D.h"
 #include <png.h>
+#include "Chomp.h"
 
 #ifdef MZ_HAVE_CAIRO
 #include <cairo/cairo.h>
@@ -101,10 +102,10 @@ bool savePNG_RGB24(const std::string& filename,
     const unsigned char* pxptr = rowptr;
     buf.clear(); 
     for (size_t x=0; x<ncols; ++x) {
-      buf.push_back(*pxptr++);
-      buf.push_back(*pxptr++);
-      buf.push_back(*pxptr++);
-      pxptr++;
+      buf.push_back(pxptr[2]);
+      buf.push_back(pxptr[1]);
+      buf.push_back(pxptr[0]);
+      pxptr += 4;
     }
     png_write_row(png_ptr, (png_bytep)&(buf[0]));
     if (yflip) {
@@ -121,6 +122,73 @@ bool savePNG_RGB24(const std::string& filename,
   fclose(fp);
 
   return true;
+
+}
+
+using namespace chomp;
+
+class Map2DCHelper: public ChompCollisionHelper {
+public: 
+
+  const Map2D& map;
+
+  Map2DCHelper(const Map2D& m): ChompCollisionHelper(2, 3, 1), map(m) {
+    // TODO: deal
+  }
+
+  virtual ~Map2DCHelper() {}
+
+  virtual double getCost(const MatX& q, 
+                         size_t body_index,
+                         MatX& dx_dq,
+                         MatX& cgrad) {
+
+    assert( (q.rows() == 2 && q.cols() == 1) ||
+            (q.rows() == 1 && q.cols() == 2) );
+
+    dx_dq.conservativeResize(3, 2);
+    dx_dq.setZero();
+
+    dx_dq << 1, 0, 0, 1, 0, 0;
+
+    cgrad.conservativeResize(3, 1);
+
+    vec3f g;
+    float c = map.sampleCost(vec3f(q(0), q(1), 0.0), g);
+
+    cgrad << g[0], g[1], 0.0;
+
+    return c;
+
+  }
+
+
+};
+
+void generateInitialTraj(int N, 
+                         const Map2D& map, 
+                         const vec3u& s0, 
+                         const vec3u& s1,
+                         MatX& xi,
+                         MatX& q0,
+                         MatX& q1) {
+
+  xi.resize(N, 2);
+  q0.resize(1, 2);
+  q1.resize(1, 2);
+
+  vec3f p0 = map.grid.cellCenter(s0);
+  vec3f p1 = map.grid.cellCenter(s1);
+
+  q0 << p0.x(), p0.y();
+  q1 << p1.x(), p1.y();
+
+  for (int i=0; i<N; ++i) {
+    float u = float(i+1)/(N+1);
+    vec3f pi = p0 + u*(p1-p0);
+    xi(i,0) = pi.x();
+    xi(i,1) = pi.y();
+  }
 
 }
 
@@ -143,6 +211,52 @@ int main(int argc, char** argv) {
   map.rasterize(Map2D::RASTER_OCCUPANCY, buf, 0);
   savePNG_RGB24("occupancy.png", map.grid.nx(), map.grid.ny(), 
                 map.grid.nx()*4, &buf[0]);
+
+
+  
+  // for accel: 
+  // N=63,  g=0.15, a=0.002 works for both flips
+  // N=127, g=0.08, a=0.001 works for both flips
+  //
+  // for vel:
+
+  int N = 127;
+  double gamma = 0.08;
+  double alpha = 0.001;
+  double errorTol = 1e-9;
+  size_t max_iter = 10000;
+
+#if 1
+  vec3u s0(380, 20, 0);
+  vec3u s1(20, 380, 0);
+#else
+  vec3u s0(380, 380, 0);
+  vec3u s1(20, 20, 0);
+#endif
+
+  MatX q0, q1, xi;
+
+  Map2DCHelper mhelper(map);
+  ChompCollGradHelper cghelper(&mhelper, gamma);
+
+  generateInitialTraj(N, map, s0, s1, xi, q0, q1);
+
+
+  Chomp chomper(NULL, xi, q0, q1, N, alpha, errorTol, max_iter);
+  chomper.ghelper = &cghelper;
+
+  chomper.prepareChomp();
+  chomper.prepareChompIter();
+  double obj = chomper.evaluateObjective();
+
+  std::cerr << "chomper.fextra = " << chomper.fextra << "\n";
+  std::cerr << "chomper.objective = " << obj << "\n";
+
+  DebugChompObserver dobs;
+
+  chomper.observer = &dobs;
+  
+  chomper.solve(true, false);
 
 #ifdef MZ_HAVE_CAIRO
 
@@ -183,35 +297,29 @@ int main(int argc, char** argv) {
   cairo_paint(cr);
   cairo_restore(cr);
   
-  cairo_set_line_width(cr, 0.5*cs);
+  cairo_set_line_width(cr, 1.0*cs);
 
-  vec3u s0(380, 20, 0);
-  vec3u s1(20, 380, 0);
-
-  vec3f p0 = map.grid.cellCenter(s0);
-  vec3f p1 = map.grid.cellCenter(s1);
-  
-  cairo_set_source_rgb(cr, 0, 0.5, 0);
-  cairo_arc(cr, p0.x(), p0.y(), 4*cs, 0.0, 2*M_PI);
+  cairo_set_source_rgb(cr, 0.5, 0.0, 1.0);
+  cairo_arc(cr, q0(0), q0(1), 4*cs, 0.0, 2*M_PI);
   cairo_fill(cr);
-  cairo_arc(cr, p1.x(), p1.y(), 4*cs, 0.0, 2*M_PI);
+  cairo_arc(cr, q1(0), q1(1), 4*cs, 0.0, 2*M_PI);
   cairo_fill(cr);
 
-  int n = 31;
+  for (int i=0; i<N; ++i) {
 
-  for (int i=0; i<n; ++i) {
-
-    float u = float(i+1) / (n+1);
-    vec3f pi = p0 + u*(p1-p0);
-
-    if (map.grid.sample(pi) <= 0) {
-      cairo_set_source_rgb(cr, 0.5, 0.0, 0.0);
-    } else {
-      cairo_set_source_rgb(cr, 0.0, 0.0, 0.5);
-    }
+    vec3f pi(chomper.xi(i,0), chomper.xi(i,1), 0.0);
+    vec3f gi(chomper.g(i,0), chomper.g(i,1), 0.0);
+    
+    //map.sampleCost(pi, gi);
+    vec3f qi = pi - 1.0*gi;
 
     cairo_arc(cr, pi.x(), pi.y(), 2*cs, 0.0, 2*M_PI);
     cairo_fill(cr);
+
+    cairo_move_to(cr, pi.x(), pi.y());
+    cairo_line_to(cr, qi.x(), qi.y());
+    cairo_stroke(cr);
+                  
     
   }
 

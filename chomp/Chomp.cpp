@@ -85,6 +85,75 @@ namespace chomp {
 
   ChompGradientHelper::~ChompGradientHelper() {}
 
+  ChompCollisionHelper::ChompCollisionHelper(size_t nc, size_t nw, size_t nb):
+    ncspace(nc), nwkspace(nw), nbodies(nb) {}
+
+  ChompCollisionHelper::~ChompCollisionHelper() {}
+
+  ChompCollGradHelper::ChompCollGradHelper(ChompCollisionHelper* h,
+                                           double g):
+    chelper(h), gamma(g)
+  {
+    dx_dq = MatX(h->nwkspace, h->ncspace);
+    cgrad = MatX(h->nwkspace, 1);
+  }
+
+  ChompCollGradHelper::~ChompCollGradHelper() {}
+
+  double ChompCollGradHelper::addToGradient(const Chomp& c,
+                                            MatX& g) {
+
+    q1 = c.getTickBorderRepeat(-1).transpose();
+    q2 = c.getTickBorderRepeat(0).transpose();
+
+    double total = 0.0;
+
+    for (int t=0; t<c.N; ++t) {
+
+      q0 = q1;
+      q1 = q2;
+      q2 = c.getTickBorderRepeat(t+1).transpose();
+
+      cspace_vel = 0.5 * (q2 - q0) * c.inv_dt;        
+      cspace_accel = (q0 - 2.0*q1 + q2) * (c.inv_dt * c.inv_dt);
+
+      for (size_t u=0; u<chelper->nbodies; ++u) {
+
+        float cost = chelper->getCost(q1, u, dx_dq, cgrad);
+
+        if (cost > 0.0) {
+
+          // workspace vel = dx_dq * cspace_vel
+          wkspace_vel = dx_dq * cspace_vel;
+
+          // workspace accel = dx_dq * cspace_accel
+          wkspace_accel = dx_dq * cspace_accel;
+
+          float wv_norm = wkspace_vel.norm();
+          wkspace_vel /= wv_norm;
+
+          // add to total
+          double scl = wv_norm * gamma / c.inv_dt;
+
+          total += cost * scl;
+
+          P = MatX::Identity(chelper->nwkspace, chelper->nwkspace) - (wkspace_vel * wkspace_vel.transpose());
+
+          K = (P * wkspace_accel) / (wv_norm * wv_norm);
+
+          //          scalar * M-by-W        * (WxW * Wx1   - scalar * Wx1)
+          g.row(t) += (scl * dx_dq.transpose() * (P * cgrad - cost * K)).transpose();
+
+        }
+        
+      }
+
+    }
+
+    return total;
+
+  }
+
   Chomp::Chomp(ConstraintFactory* f,
                const MatX& xi_init, // should be N-by-M
                const MatX& pinit, // q0
@@ -284,7 +353,8 @@ namespace chomp {
           cur_global_iter >= max_global_iter) {
         global = false;
       }
-      if (notify(CHOMP_GLOBAL_ITER, cur_global_iter, curObjective, lastObjective, hmag)) {
+      if (notify(CHOMP_GLOBAL_ITER, cur_global_iter, 
+                 curObjective, lastObjective, hmag)) {
         global = false;
       }
       lastObjective = curObjective;
@@ -305,7 +375,8 @@ namespace chomp {
           cur_local_iter >= max_local_iter) {
         local = false;
       }
-      if (notify(CHOMP_LOCAL_ITER, cur_local_iter, curObjective, lastObjective, hmag)) {
+      if (notify(CHOMP_LOCAL_ITER, cur_local_iter, 
+                 curObjective, lastObjective, hmag)) {
         local = false;
       }
       lastObjective = curObjective;

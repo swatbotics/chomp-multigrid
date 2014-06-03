@@ -83,6 +83,52 @@ namespace chomp {
     virtual double addToGradient(const Chomp& c, MatX& g) =0;
   };
 
+  class ChompCollisionHelper {
+  public:
+
+    // nbodies = number of bodies considered in gradient term
+    // nwkspace = workspace dimension (2 or 3 probably)
+    // ncspace = config. space dimension
+
+    ChompCollisionHelper(size_t ncspace, size_t nwkspace, size_t nbodies);
+
+    virtual ~ChompCollisionHelper();
+
+    // return the cost for a given configuration/body, along with jacobians
+    virtual double getCost(const MatX& q,         // configuration
+                           size_t body_index,     // which body
+                           MatX& dx_dq, // Jacobian of workspace pos (nwkspace-by-ncspace)
+                           MatX& cgrad) =0; // gradient (Jacobian transpose) of cost wrt workspace pos (ncspace-by-1)
+    
+    
+    size_t ncspace;
+    size_t nwkspace;
+    size_t nbodies;
+
+  };
+
+  class ChompCollGradHelper: public ChompGradientHelper {
+  public:
+
+    ChompCollGradHelper(ChompCollisionHelper* h, double gamma=0.1);
+    virtual ~ChompCollGradHelper();
+
+    virtual double addToGradient(const Chomp& c, MatX& g);
+
+    ChompCollisionHelper* chelper;
+    double gamma;
+
+    MatX dx_dq;
+    MatX cgrad;
+
+    MatX q0, q1, q2;
+    MatX cspace_vel, cspace_accel;
+    MatX wkspace_vel, wkspace_accel;
+    MatX P;
+    MatX K; 
+    
+  };
+
   enum ChompObjectiveType {
     MINIMIZE_VELOCITY = 0,
     MINIMIZE_ACCELERATION = 1,
