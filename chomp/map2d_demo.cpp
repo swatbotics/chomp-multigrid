@@ -185,38 +185,34 @@ int main(int argc, char** argv) {
   
   cairo_set_line_width(cr, 0.5*cs);
 
-  float x0 = bbox.p0.x();
-  float y0 = bbox.p0.y();
+  vec3u s0(380, 20, 0);
+  vec3u s1(20, 380, 0);
 
-  float x1 = 0.5 * (bbox.p0.x() + bbox.p1.x());
-  float y1 = 0.5 * (bbox.p0.y() + bbox.p1.y());
-
-  cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-  cairo_arc(cr, x0, y0, 10.0*mpt, 0.0, 2*M_PI);
-  cairo_stroke(cr);
-
-  cairo_set_source_rgb(cr, 1.0, 0.0, 0.0);
-  cairo_arc(cr, x1, y0, 10.0*mpt, 0.0, 2*M_PI);
-  cairo_stroke(cr);
-
-  cairo_set_source_rgb(cr, 0.0, 1.0, 0.0);
-  cairo_arc(cr, x0, y1, 10.0*mpt, 0.0, 2*M_PI);
-  cairo_stroke(cr);
-
+  vec3f p0 = map.grid.cellCenter(s0);
+  vec3f p1 = map.grid.cellCenter(s1);
   
-  for (int i=0; i<500; ++i) {
-    vec3f p(0.0);
-    for (int j=0; j<2; ++j) {
-      p[j] = (double(rand())/RAND_MAX)*dims[j] + bbox.p0[j];
-    } 
-    float d = map.grid.sample(p);
-    if (d < 0) {
-      cairo_set_source_rgb(cr, 0.6, 0.0, 0.0);
+  cairo_set_source_rgb(cr, 0, 0.5, 0);
+  cairo_arc(cr, p0.x(), p0.y(), 4*cs, 0.0, 2*M_PI);
+  cairo_fill(cr);
+  cairo_arc(cr, p1.x(), p1.y(), 4*cs, 0.0, 2*M_PI);
+  cairo_fill(cr);
+
+  int n = 31;
+
+  for (int i=0; i<n; ++i) {
+
+    float u = float(i+1) / (n+1);
+    vec3f pi = p0 + u*(p1-p0);
+
+    if (map.grid.sample(pi) <= 0) {
+      cairo_set_source_rgb(cr, 0.5, 0.0, 0.0);
     } else {
-      cairo_set_source_rgb(cr, 0.0, 0.0, 0.6);
+      cairo_set_source_rgb(cr, 0.0, 0.0, 0.5);
     }
-    cairo_arc(cr, p.x(), p.y(), cs, 0.0, 2*M_PI);
-    cairo_stroke(cr);
+
+    cairo_arc(cr, pi.x(), pi.y(), 2*cs, 0.0, 2*M_PI);
+    cairo_fill(cr);
+    
   }
 
   cairo_surface_destroy(image);
