@@ -1,0 +1,4 @@
+scene -3 -3 6 6 0.015
+obs2d map3.png -3 -3 6 6
+eps 0.2
+
