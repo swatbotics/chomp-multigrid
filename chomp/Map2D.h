@@ -50,6 +50,9 @@ public:
   float sampleCost(const vec3f& p) const;
   float sampleCost(const vec3f& p, vec3f& grad) const;
 
+  float distToCost(float d) const;
+  float distToCost(float d, float& g) const;
+
   void rasterize(RasterType type,
                  std::vector<unsigned char>& map,
                  size_t stride=0) const;

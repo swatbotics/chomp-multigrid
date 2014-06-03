@@ -274,6 +274,12 @@ void Map2D::load(const char* filename) {
 float Map2D::sampleCost(const vec3f& p) const {
   
   float d = grid.sample(p);
+  return distToCost(d);
+
+}
+
+float Map2D::distToCost(float d) const {
+
   if (d < 0) {
     return -d + 0.5*eps;
   } else if (d <= eps) {
@@ -281,6 +287,28 @@ float Map2D::sampleCost(const vec3f& p) const {
     return f*f*0.5/eps;
   } else {
     return 0;
+  }
+
+}
+
+float Map2D::distToCost(float d, float& g) const {
+
+  if (d < 0) {
+
+    g = 1;
+    return -d + 0.5*eps;
+
+  } else if (d <= eps) {
+
+    float f = d-eps;
+    g = f*0.5/eps;
+    return f*f*0.5/eps;
+
+  } else {
+
+    g = 0;
+    return 0;
+
   }
 
 }
@@ -288,23 +316,12 @@ float Map2D::sampleCost(const vec3f& p) const {
 float Map2D::sampleCost(const vec3f& p, vec3f& grad) const {
 
   float d = grid.sample(p, grad);
+  float g;
 
-  if (d < 0) {
+  float c = distToCost(d, g);
 
-    return -d + 0.5*eps;
-
-  } else if (d <= eps) {
-
-    float f = d-eps;
-    grad *= f*0.5/eps;
-    return f*f*0.5/eps;
-
-  } else {
-
-    grad = vec3f(0);
-    return 0;
-
-  }
+  grad *= g;
+  return c;
 
 }
 
@@ -312,6 +329,71 @@ void Map2D::rasterize(RasterType type,
                       std::vector<unsigned char>& map,
                       size_t stride) const {
 
-  // TODO: writeme
+  // get limits
+  float vmin = 1e10;
+  float vmax = -1e10;
+
+  if (type == RASTER_DISTANCE || type == RASTER_COST) {
+
+    for (size_t y=0; y<grid.ny(); ++y) {
+      for (size_t x=0; x<grid.nx(); ++x) {
+        float v = grid(x,y,0);
+        if (type == RASTER_COST) {
+          v = distToCost(v);
+        }
+        vmin = std::min(vmin, v);
+        vmax = std::max(vmax, v);
+      }
+    }
+
+  }
+
+  if (stride < 4*grid.nx()) {
+    stride = 4*grid.nx();
+  }
+
+  map.resize( grid.ny() * stride, 0xff );
+
+  unsigned char* rowptr = &(map[0]);
+
+  Gradient grad;
+
+  if (type == RASTER_DISTANCE) {
+    grad = Gradient::jet();
+  } else if (type == RASTER_COST) {
+    grad = Gradient::hot();
+  } else {
+    grad.stops[0.0f] = vec3f(1.0f);
+    grad.stops[1.0f] = vec3f(0.5f);
+  }
+
+  for (size_t y=0; y<grid.ny(); ++y) {
+
+    unsigned char* pxptr = rowptr;
+    rowptr += stride;
+
+    for (size_t x=0; x<grid.nx(); ++x) {
+
+      float v = grid(x,y,0);
+
+      if (type == RASTER_DISTANCE || type == RASTER_COST) {
+        if (type == RASTER_COST) {
+          v = distToCost(v);
+        } 
+        v = (v-vmin)/(vmax-vmin);
+      } else {
+        v = (v < 0.0);
+      }
+
+      vec3f c = grad.lookup(v);
+
+      for (int i=0; i<3; ++i) {
+        *pxptr++ = std::max(0.0f, std::min(c[i], 1.0f))*255;
+      }
+      *pxptr++ = 0xff;
+
+    }
+
+  }
 
 }

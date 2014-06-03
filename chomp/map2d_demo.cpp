@@ -32,6 +32,98 @@
 */
 
 #include "Map2D.h"
+#include <png.h>
+
+#ifdef MZ_HAVE_CAIRO
+#include <cairo/cairo.h>
+#include <cairo/cairo-pdf.h>
+//#include <cairo/cairo-image.h>
+#endif
+
+bool savePNG_RGB24(const std::string& filename,
+                   size_t ncols, size_t nrows, 
+                   size_t rowsz,
+                   const unsigned char* src,
+                   bool yflip=false) {
+
+  FILE* fp = fopen(filename.c_str(), "wb");
+  if (!fp) { 
+    std::cerr << "couldn't open " << filename << " for output!\n";
+    return false;
+  }
+  
+  png_structp png_ptr = png_create_write_struct
+    (PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+
+  if (!png_ptr) {
+    std::cerr << "error creating png write struct\n";
+    return false;
+  }
+  
+  png_infop info_ptr = png_create_info_struct(png_ptr);
+  if (!info_ptr) {
+    std::cerr << "error creating png info struct\n";
+    png_destroy_write_struct(&png_ptr,
+			     (png_infopp)NULL);
+    fclose(fp);
+    return false;
+  }  
+
+  if (setjmp(png_jmpbuf(png_ptr))) {
+    std::cerr << "error in png processing\n";
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+    fclose(fp);
+    return false;
+  }
+
+  png_init_io(png_ptr, fp);
+
+  png_set_IHDR(png_ptr, info_ptr, 
+	       ncols, nrows,
+	       8, 
+	       PNG_COLOR_TYPE_RGB,
+	       PNG_INTERLACE_NONE,
+	       PNG_COMPRESSION_TYPE_DEFAULT,
+	       PNG_FILTER_TYPE_DEFAULT);
+
+  png_write_info(png_ptr, info_ptr);
+
+  std::vector<unsigned char> buf(ncols*4);
+
+  const unsigned char* rowptr;
+  if (yflip) {
+    rowptr = src + rowsz * (nrows-1);
+  } else {
+    rowptr = src;
+  }
+
+  for (size_t y=0; y<nrows; ++y) {
+    const unsigned char* pxptr = rowptr;
+    buf.clear(); 
+    for (size_t x=0; x<ncols; ++x) {
+      buf.push_back(*pxptr++);
+      buf.push_back(*pxptr++);
+      buf.push_back(*pxptr++);
+      pxptr++;
+    }
+    png_write_row(png_ptr, (png_bytep)&(buf[0]));
+    if (yflip) {
+      rowptr -= rowsz;
+    } else {
+      rowptr += rowsz;
+    }
+  }
+
+  png_write_end(png_ptr, info_ptr);
+
+  png_destroy_write_struct(&png_ptr, &info_ptr);
+
+  fclose(fp);
+
+  return true;
+
+
+}
 
 int main(int argc, char** argv) {
 
@@ -42,6 +134,57 @@ int main(int argc, char** argv) {
   std::vector<unsigned char> buf;
 
   map.rasterize(Map2D::RASTER_DISTANCE, buf, 0);
+  savePNG_RGB24("dist.png", map.grid.nx(), map.grid.ny(), 
+                map.grid.nx()*4, &buf[0]);
+
+  map.rasterize(Map2D::RASTER_COST, buf, 0);
+  savePNG_RGB24("cost.png", map.grid.nx(), map.grid.ny(), 
+                map.grid.nx()*4, &buf[0]);
+
+  map.rasterize(Map2D::RASTER_OCCUPANCY, buf, 0);
+  savePNG_RGB24("occupancy.png", map.grid.nx(), map.grid.ny(), 
+                map.grid.nx()*4, &buf[0]);
+
+#ifdef MZ_HAVE_CAIRO
+
+  Box3f bbox = map.grid.bbox();
+  vec3f dims = bbox.p1 - bbox.p0;
+
+  float scl = (4*72.0) / std::max(dims.x(), dims.y());
+
+  int width = int(scl * dims.x());
+  int height = int(scl * dims.y());
+  std::cout << "image will be " << width << "x" << height << "\n";
+
+  cairo_surface_t* surface = cairo_pdf_surface_create("map2d.pdf",
+                                                      width, height);
+
+  cairo_t* cr = cairo_create(surface);
+
+  size_t stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, map.grid.nx());
+  map.rasterize(Map2D::RASTER_OCCUPANCY, buf, stride);
+
+  cairo_surface_t* image = 
+    cairo_image_surface_create_for_data(&(buf[0]), 
+                                        CAIRO_FORMAT_RGB24,
+                                        map.grid.nx(), map.grid.ny(),
+                                        stride);
+
+  float iscl = scl*dims.x()/map.grid.nx();
+
+
+  cairo_translate(cr, 0, height);
+  cairo_scale(cr, iscl, -iscl);
+  cairo_set_source_surface(cr, image, 0, 0);
+  cairo_paint(cr);
+
+  cairo_identity_matrix(cr);
+
+  cairo_surface_destroy(image);
+  cairo_surface_destroy(surface);
+  cairo_destroy(cr);
+
+#endif
 
   return 0;
 
