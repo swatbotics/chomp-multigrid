@@ -370,7 +370,6 @@ void Map2D::rasterize(RasterType type,
   for (size_t y=0; y<grid.ny(); ++y) {
 
     unsigned char* pxptr = rowptr;
-    rowptr += stride;
 
     for (size_t x=0; x<grid.nx(); ++x) {
 
@@ -393,6 +392,8 @@ void Map2D::rasterize(RasterType type,
       *pxptr++ = 0xff;
 
     }
+
+    rowptr += stride;
 
   }
 

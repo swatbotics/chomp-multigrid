@@ -122,7 +122,6 @@ bool savePNG_RGB24(const std::string& filename,
 
   return true;
 
-
 }
 
 int main(int argc, char** argv) {
@@ -150,10 +149,13 @@ int main(int argc, char** argv) {
   Box3f bbox = map.grid.bbox();
   vec3f dims = bbox.p1 - bbox.p0;
 
-  float scl = (4*72.0) / std::max(dims.x(), dims.y());
+  // mscl = DISPLAY / MAP
+  float mscl = (400) / std::max(dims.x(), dims.y());
+  float cs = map.grid.cellSize();
+  float mpt = 1.0/mscl;
 
-  int width = int(scl * dims.x());
-  int height = int(scl * dims.y());
+  int width = int(mscl * dims.x());
+  int height = int(mscl * dims.y());
   std::cout << "image will be " << width << "x" << height << "\n";
 
   cairo_surface_t* surface = cairo_pdf_surface_create("map2d.pdf",
@@ -170,15 +172,52 @@ int main(int argc, char** argv) {
                                         map.grid.nx(), map.grid.ny(),
                                         stride);
 
-  float iscl = scl*dims.x()/map.grid.nx();
-
-
-  cairo_translate(cr, 0, height);
-  cairo_scale(cr, iscl, -iscl);
-  cairo_set_source_surface(cr, image, 0, 0);
-  cairo_paint(cr);
-
   cairo_identity_matrix(cr);
+  cairo_translate(cr, 0, height);
+  cairo_scale(cr, mscl, -mscl);
+  cairo_translate(cr, -bbox.p0.x(), -bbox.p0.y());
+
+  cairo_save(cr);
+  cairo_scale(cr, cs, cs);
+  cairo_set_source_surface(cr, image, bbox.p0.x()/cs, bbox.p0.y()/cs);
+  cairo_paint(cr);
+  cairo_restore(cr);
+  
+  cairo_set_line_width(cr, 0.5*cs);
+
+  float x0 = bbox.p0.x();
+  float y0 = bbox.p0.y();
+
+  float x1 = 0.5 * (bbox.p0.x() + bbox.p1.x());
+  float y1 = 0.5 * (bbox.p0.y() + bbox.p1.y());
+
+  cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+  cairo_arc(cr, x0, y0, 10.0*mpt, 0.0, 2*M_PI);
+  cairo_stroke(cr);
+
+  cairo_set_source_rgb(cr, 1.0, 0.0, 0.0);
+  cairo_arc(cr, x1, y0, 10.0*mpt, 0.0, 2*M_PI);
+  cairo_stroke(cr);
+
+  cairo_set_source_rgb(cr, 0.0, 1.0, 0.0);
+  cairo_arc(cr, x0, y1, 10.0*mpt, 0.0, 2*M_PI);
+  cairo_stroke(cr);
+
+  
+  for (int i=0; i<500; ++i) {
+    vec3f p(0.0);
+    for (int j=0; j<2; ++j) {
+      p[j] = (double(rand())/RAND_MAX)*dims[j] + bbox.p0[j];
+    } 
+    float d = map.grid.sample(p);
+    if (d < 0) {
+      cairo_set_source_rgb(cr, 0.6, 0.0, 0.0);
+    } else {
+      cairo_set_source_rgb(cr, 0.0, 0.0, 0.6);
+    }
+    cairo_arc(cr, p.x(), p.y(), cs, 0.0, 2*M_PI);
+    cairo_stroke(cr);
+  }
 
   cairo_surface_destroy(image);
   cairo_surface_destroy(surface);
