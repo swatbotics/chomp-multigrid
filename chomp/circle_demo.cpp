@@ -99,9 +99,33 @@ public:
   bool dumpOpt;
   int count;
 
-  PdfEmitter(): dumpOpt(false), count(0) {}
+  double sz, scl, m;
+  cairo_surface_t* surface;
+  cairo_t* cr;
 
-  virtual ~PdfEmitter() {}
+  const char* filename;
+
+  PdfEmitter(const char* f): dumpOpt(false), count(0), filename(f) {
+
+    sz = 4*72; 
+    scl = sz/10;
+    m = 0;
+
+    surface = cairo_pdf_surface_create(filename,
+                                       sz+2*m, sz+2*m);
+
+    cr = cairo_create(surface);
+
+  }
+
+  virtual ~PdfEmitter() {
+
+    cairo_surface_destroy(surface);
+    cairo_destroy(cr);
+
+    std::cout << "wrote " << filename << "\n\n";
+    
+  }
 
   virtual int notify(const Chomp& chomper, 
                      ChompEventType event,
@@ -121,27 +145,15 @@ public:
 
     }
 
-    char filename[1024];
-
-    snprintf(filename, 1024, "circle_%04d_%04d_%04d.pdf",
-             chomper.minN, chomper.maxN, count++);
-
-    std::cerr << "dumping " << filename << "\n";
-
-    double sz = 4*72; // 2in
-    double scl = sz/10;
-    double m = 0;
+    if (count++) { 
+      cairo_show_page(cr);
+    }
 
     double x0 = -4;
     double y0 = 6;
 
-    cairo_surface_t* surface = cairo_pdf_surface_create(filename,
-                                                        sz+2*m, sz+2*m);
-
 #define MAPX(x) (((x)-x0)*scl+m)
 #define MAPY(y) ((y0-(y))*scl+m)
-
-    cairo_t* cr = cairo_create(surface);
 
     cairo_set_line_width(cr, 1);
     cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
@@ -168,8 +180,6 @@ public:
     cairo_set_source_rgb(cr, 0, 0, 0);
     cairo_stroke(cr);
 
-    cairo_surface_destroy(surface);
-    cairo_destroy(cr);
       
     return 0;
 
@@ -207,9 +217,9 @@ void usage(int status) {
     "  -t, --num-final          Minimum number of steps for final trajectory\n"
     "  -l, --no-local           Disable local smoothing\n"
     "  -g, --no-global          Disable global smoothing\n"
-    "  -n, --no-multigrid       Disable multigrid computation\n"
+    "  -m, --no-multigrid       Disable multigrid computation\n"
     "  -e, --error-tol          Relative error tolerance\n"
-    "  -s, --step-size          Step size\n"
+    "  -a, --alpha              Step size for CHOMP\n"
     "  -p, --pdf                Output PDF's\n"
     "      --help               See this message.\n";
   exit(status);
@@ -225,14 +235,14 @@ int main(int argc, char** argv) {
   bool doGlobalSmooth = true;
   bool doLocalSmooth = true;
   bool doPDF = false;
-  double alpha = 0.1;
-  double errorTol = 1e-3;
+  double alpha = 0.05;
+  double errorTol = 1e-7;
 
   const struct option long_options[] = {
     { "num-initial",       required_argument, 0, 'n' },
     { "num-final",         required_argument, 0, 't' },
     { "error-tol",         required_argument, 0, 'e' },
-    { "step-size",         required_argument, 0, 's' },
+    { "alpha",             required_argument, 0, 'a' },
     { "no-multigrid",      no_argument,       0, 'm' },
     { "no-global",         no_argument,       0, 'g' },
     { "no-local",          no_argument,       0, 'l' },
@@ -241,7 +251,7 @@ int main(int argc, char** argv) {
     { 0,                   0,                 0,  0  }
   };
 
-  const char* short_options = "n:t:e:s:mpglh";
+  const char* short_options = "n:t:e:a:mpglh";
   int opt, option_index;
 
   while ( (opt = getopt_long(argc, argv, short_options, 
@@ -308,15 +318,29 @@ int main(int argc, char** argv) {
   chomper.observer = &obs;
 
 #ifdef MZ_HAVE_CAIRO
-  PdfEmitter pobs;
-  pobs.dumpOpt = !doLocalSmooth;
+  PdfEmitter* pobs = 0;
 
   if (doPDF) {
-    chomper.observer = &pobs;
+
+    char filename[1024];
+
+    snprintf(filename, 1024, "circle_%04d_%04d_%s_%s.pdf",
+             chomper.minN, chomper.maxN, 
+             doLocalSmooth ? "local" : "nolocal", 
+             doGlobalSmooth ? "global" : "noglobal");
+
+    pobs = new PdfEmitter(filename);
+
+    pobs->dumpOpt = (doMultigrid == false);
+    chomper.observer = pobs;
   }
 #endif
 
   chomper.solve(doGlobalSmooth, doLocalSmooth);
+
+#ifdef MZ_HAVE_CAIRO
+  delete pobs;
+#endif
 
   return 0;
 

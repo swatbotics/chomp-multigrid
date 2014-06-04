@@ -282,7 +282,7 @@ public:
     cairo_surface_destroy(image);
     cairo_destroy(cr);
 
-    std::cout << "wrote " << filename << "\n";
+    std::cout << "wrote " << filename << "\n\n";
 
   }
 
