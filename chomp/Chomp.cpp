@@ -75,6 +75,7 @@ namespace chomp {
               << "iter=" << iter << ", "
               << "cur=" << std::setprecision(10) << curObjective << ", "
               << "last=" << std::setprecision(10) << lastObjective << ", "
+              << "rel=" << std::setprecision(10) << ((lastObjective-curObjective)/curObjective) << ", "
               << "constraint=" << std::setprecision(10) << constraintViolation << "\n";
     if (std::isnan(curObjective) || std::isinf(curObjective) ||
         std::isnan(lastObjective) || std::isinf(lastObjective)) {
